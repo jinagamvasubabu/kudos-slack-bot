@@ -117,8 +117,6 @@ RECOGNITION_TYPES = {
 4. Write your kudos message (supports emojis and @mentions)
 5. Click "Send Kudos"
 
-![Slash Command Usage](images/slash-command-usage.png)
-
 
 ## Troubleshooting 🔍
 
