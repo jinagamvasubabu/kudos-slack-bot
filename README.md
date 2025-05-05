@@ -42,7 +42,6 @@ A Slack bot that allows team members to give kudos to their colleagues with cust
    ```
    SLACK_BOT_TOKEN=xoxb-your-bot-token
    SLACK_SIGNING_SECRET=your-signing-secret
-   SLACK_APP_TOKEN=your-app-level-token
    ```
 
 5. Start ngrok (for local development):
