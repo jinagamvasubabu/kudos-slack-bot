@@ -10,21 +10,22 @@ A Slack bot that allows team members to give kudos to their colleagues with cust
 - Channel-based kudos sharing
 - Easy configuration through `config.py`
 - Global shortcut for quick access
+- Socket Mode support (no need for ngrok)
 
 ## Prerequisites 📋
 
 - Python 3.7 or higher
 - A Slack workspace
 - Slack app with appropriate permissions
-- ngrok (for local development)
 
 ## Setup Instructions 🛠️
+
 ### 1. Local Development Setup
 
 1. Clone this repository:
    ```bash
-   git clone <repository-url>
-   cd kudos
+   git clone https://github.com/jinagamvasubabu/kudos-slack-bot.git
+   cd kudos-slack-bot
    ```
 
 2. Create and activate a virtual environment:
@@ -42,14 +43,10 @@ A Slack bot that allows team members to give kudos to their colleagues with cust
    ```
    SLACK_BOT_TOKEN=xoxb-your-bot-token
    SLACK_SIGNING_SECRET=your-signing-secret
+   SLACK_APP_TOKEN=xapp-your-app-token
    ```
 
-5. Start ngrok (for local development):
-   ```bash
-   ngrok http 3000
-   ```
-
-6. Run the application:
+5. Run the application:
    ```bash
    python app.py
    ```
@@ -63,7 +60,6 @@ A Slack bot that allows team members to give kudos to their colleagues with cust
 5. Under "Add features and functionality", click on "Bots"
 6. Click "Review Scopes to Add"
 
-
 ### 3. Configure Slack App Permissions
 
 Add the following OAuth scopes to your bot:
@@ -74,24 +70,37 @@ Add the following OAuth scopes to your bot:
 - `commands` - To add slash commands
 - `shortcuts` - To add global shortcuts
 
+### 4. Enable Socket Mode
 
-### 4. Install the App to Your Workspace
+1. Go to "Socket Mode" in your app settings
+2. Toggle "Enable Socket Mode" to On
+3. Generate an App-Level Token with the `connections:write` scope
+4. Copy the generated token to your `.env` file as `SLACK_APP_TOKEN`
+
+### 5. Install the App to Your Workspace
 
 1. Go to "OAuth & Permissions" in your app settings
 2. Click "Install to Workspace"
 3. Authorize the app
 
-
-### 5. Set Up Slash Command
+### 6. Set Up Slash Command
 
 1. Go to "Slash Commands" in your app settings
 2. Click "Create New Command"
 3. Fill in the following:
    - Command: `/kudos`
-   - Request URL: `https://your-ngrok-url/slack/events`
    - Short Description: "Give kudos to a team member"
    - Usage Hint: `[@user] [message]`
 
+### 7. Set Up Global Shortcut
+
+1. Go to "Interactivity & Shortcuts" in your app settings
+2. Enable Interactivity
+3. Under "Global Shortcuts", click "Create New Shortcut"
+4. Fill in the following:
+   - Name: "Give Kudos"
+   - Description: "Quickly give kudos to a team member"
+   - Callback ID: `kudos_shortcut`
 
 ## Configuration 🛠️
 
@@ -116,6 +125,13 @@ RECOGNITION_TYPES = {
 4. Write your kudos message (supports emojis and @mentions)
 5. Click "Send Kudos"
 
+### Using Global Shortcut
+1. Click the "+" button next to the message input
+2. Select "Give Kudos" from the shortcuts menu
+3. Select a team member from the dropdown
+4. Choose a recognition type
+5. Write your kudos message
+6. Click "Send Kudos"
 
 ## Troubleshooting 🔍
 
@@ -124,7 +140,7 @@ RECOGNITION_TYPES = {
 1. **Bot not responding**
    - Check if the bot is installed in the workspace
    - Verify the bot token in `.env`
-   - Ensure ngrok is running and the URL is updated in Slack app settings
+   - Ensure Socket Mode is enabled
 
 2. **Cannot post in channel**
    - Make sure the bot is invited to the channel
@@ -150,5 +166,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments 🙏
 
 - [Slack Bolt Framework](https://slack.dev/bolt-python/tutorial/getting-started)
-- [Flask](https://flask.palletsprojects.com/)
 - [python-dotenv](https://pypi.org/project/python-dotenv/) 

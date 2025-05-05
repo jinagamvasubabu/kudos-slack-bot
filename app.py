@@ -2,11 +2,8 @@ import os
 import logging
 from dotenv import load_dotenv
 from slack_bolt import App
-from slack_bolt.adapter.flask import SlackRequestHandler
-from flask import Flask, request, jsonify
+from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk.errors import SlackApiError
-import time
-from datetime import datetime
 from config import RECOGNITION_TYPES, DEFAULT_EMOJI
 
 # Set up logging
@@ -19,17 +16,11 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-# Create Flask app
-flask_app = Flask(__name__)
-
-# Initialize Slack app
+# Initialize Slack app with Socket Mode
 app = App(
     token=os.environ.get("SLACK_BOT_TOKEN"),
     signing_secret=os.environ.get("SLACK_SIGNING_SECRET")
 )
-
-# Create SlackRequestHandler
-handler = SlackRequestHandler(app)
 
 def extract_rich_text_content(rich_text_input):
     """Extract content from rich text input, handling text and emojis."""
@@ -84,11 +75,6 @@ def create_kudos_message(recipient_id, recognition, message_content, sender_id):
         f"*Message:*\n{message_content}\n\n"
         f"*From:* <@{sender_id}>\n"
     )
-
-# Handle Slack events
-@flask_app.route("/slack/events", methods=["POST"])
-def slack_events():
-    return handler.handle(request)
 
 # Handle message events
 @app.event("message")
@@ -247,11 +233,111 @@ def handle_kudos_submission(ack, body, client, view):
             text="Sorry, there was an error submitting your kudos. Please try again."
         )
 
+# Handle global shortcut
+@app.shortcut("kudos_shortcut")
+def handle_kudos_shortcut(ack, body, client):
+    ack()
+    
+    try:
+        # Get the channel ID from the shortcut context
+        channel_id = body.get("channel", {}).get("id")
+        
+        if not channel_id:
+            # If no channel ID, send a message to the user
+            client.chat_postMessage(
+                channel=body["user"]["id"],
+                text="Please use this shortcut in a channel to give kudos."
+            )
+            return
+
+        # Get users and create options
+        users_response = client.users_list()
+        user_options = create_user_options(users_response["members"])
+        recognition_options = create_recognition_options()
+
+        # Open the modal
+        client.views_open(
+            trigger_id=body["trigger_id"],
+            view={
+                "type": "modal",
+                "callback_id": "kudos_modal",
+                "private_metadata": channel_id,
+                "title": {
+                    "type": "plain_text",
+                    "text": "🎉 Give Kudos"
+                },
+                "submit": {
+                    "type": "plain_text",
+                    "text": "Send Kudos"
+                },
+                "blocks": [
+                    {
+                        "type": "input",
+                        "block_id": "recipient_block",
+                        "label": {
+                            "type": "plain_text",
+                            "text": "👥 Select Coworker"
+                        },
+                        "element": {
+                            "type": "static_select",
+                            "action_id": "recipient_select",
+                            "placeholder": {
+                                "type": "plain_text",
+                                "text": "Select a coworker"
+                            },
+                            "options": user_options
+                        }
+                    },
+                    {
+                        "type": "input",
+                        "block_id": "recognition_type_block",
+                        "label": {
+                            "type": "plain_text",
+                            "text": "🏆 Recognition Type"
+                        },
+                        "element": {
+                            "type": "static_select",
+                            "action_id": "recognition_type_select",
+                            "placeholder": {
+                                "type": "plain_text",
+                                "text": "Select recognition type"
+                            },
+                            "options": recognition_options
+                        }
+                    },
+                    {
+                        "type": "input",
+                        "block_id": "message_block",
+                        "label": {
+                            "type": "plain_text",
+                            "text": "💬 Message"
+                        },
+                        "element": {
+                            "type": "rich_text_input",
+                            "action_id": "message_input",
+                            "placeholder": {
+                                "type": "plain_text",
+                                "text": "Write your kudos message here... You can use emojis and @mention people!"
+                            }
+                        }
+                    }
+                ]
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error handling shortcut: {e}")
+        client.chat_postMessage(
+            channel=body["user"]["id"],
+            text="Sorry, there was an error opening the kudos form. Please try again."
+        )
+
 # Start your app
 if __name__ == "__main__":
     try:
         logger.info("Starting the app...")
-        flask_app.run(port=3000)
+        # Initialize Socket Mode handler
+        handler = SocketModeHandler(app_token=os.environ.get("SLACK_APP_TOKEN"), app=app)
+        handler.start()
     except Exception as e:
         logger.error("Error starting the app: %s", str(e))
         raise
