@@ -33,3 +33,30 @@ RECOGNITION_TYPES = {
 
 # Default emoji for kudos message
 DEFAULT_EMOJI = "👏" 
+
+# Google Sheets Configuration
+SHEETS_CONFIG = {
+    # Enable/disable Google Sheets integration
+    "enabled": True,
+    
+    # Default path to credentials file (can be overridden in .env)
+    "default_credentials_path": "credentials.json",
+    
+    # Sheet headers configuration
+    "headers": [
+        "Timestamp", 
+        "Recipient", 
+        "Recipient ID",
+        "Recognition Type",
+        "Message", 
+        "Sender", 
+        "Sender ID", 
+        "Channel ID"
+    ],
+    
+    # Auto-create headers if sheet is empty
+    "auto_create_headers": True,
+    
+    # Time format for logging
+    "timestamp_format": "%Y-%m-%d %H:%M:%S"
+} 

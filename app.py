@@ -4,11 +4,14 @@ from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk.errors import SlackApiError
-from config import RECOGNITION_TYPES, DEFAULT_EMOJI
+import time
+from datetime import datetime
+from config import RECOGNITION_TYPES, DEFAULT_EMOJI, SHEETS_CONFIG
+from sheets_integration import sheets
 
 # Set up logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -16,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-# Initialize Slack app with Socket Mode
+# Initialize Slack app
 app = App(
     token=os.environ.get("SLACK_BOT_TOKEN"),
     signing_secret=os.environ.get("SLACK_SIGNING_SECRET")
@@ -86,7 +89,7 @@ def handle_message_events(body, logger):
 @app.command("/kudos")
 def handle_kudos_command(ack, body, client, logger):
     ack()
-    
+    logger.info("Received kudos command")
     try:
         channel_id = body.get("channel_id")
         if not channel_id:
@@ -181,6 +184,7 @@ def handle_kudos_command(ack, body, client, logger):
 @app.view("kudos_modal")
 def handle_kudos_submission(ack, body, client, view):
     ack()
+    logger.info("Kudos submission received - processing now")
     
     try:
         # Extract values from the submission
@@ -207,10 +211,63 @@ def handle_kudos_submission(ack, body, client, view):
         channel_id = view["private_metadata"]
         if channel_id:
             try:
+                # Send the message to the channel
                 client.chat_postMessage(
                     channel=channel_id,
                     text=kudos_message
                 )
+                
+                logger.info("===== STARTING GOOGLE SHEETS LOGGING =====")
+                
+                # Check sheets integration state before proceeding
+                logger.info(f"Sheets integration initialized: {sheets.initialized}")
+                logger.info(f"Sheets integration spreadsheet_id: {sheets.spreadsheet_id}")
+                logger.info(f"Sheets integration credentials_path: {sheets.credentials_path}")
+                logger.info(f"Credentials file exists: {os.path.exists(sheets.credentials_path)}")
+                
+                try:
+                    # Get user information for better logging
+                    logger.info(f"Getting user info for sender: {body['user']['id']}")
+                    sender_info = client.users_info(user=body["user"]["id"])
+                    logger.info(f"Getting user info for recipient: {recipient_id}")
+                    recipient_info = client.users_info(user=recipient_id)
+                    
+                    # Log the recognition to Google Sheets
+                    recognition_data = {
+                        'recipient_name': recipient_info["user"]["real_name"],
+                        'recipient_id': recipient_id,
+                        'recognition_type': f"{recognition['title']} ({recognition_type})",
+                        'message': message_content,
+                        'sender_name': sender_info["user"]["real_name"],
+                        'sender_id': body["user"]["id"],
+                        'channel_id': channel_id
+                    }
+                    
+                    # Add detailed logging for debugging Google Sheets integration
+                    logger.info(f"Attempting to log recognition to Google Sheets: {recognition_data}")
+                    
+                    # Try creating a fresh sheets instance to see if that helps
+                    logger.info("Creating a fresh sheets instance for this logging attempt")
+                    import sheets_integration
+                    from sheets_integration import SheetsIntegration
+                    fresh_sheets = SheetsIntegration()
+                    
+                    if fresh_sheets.initialized:
+                        logger.info("Fresh sheets instance initialized successfully")
+                        # Use the fresh instance to log
+                        sheets_result = fresh_sheets.log_recognition(recognition_data)
+                        logger.info(f"Fresh sheets logging result: {sheets_result}")
+                    else:
+                        logger.warning("Fresh sheets instance failed to initialize")
+                        # Try with the original instance as fallback
+                        sheets_result = sheets.log_recognition(recognition_data)
+                        logger.info(f"Original sheets logging result: {sheets_result}")
+                    
+                    logger.info("===== COMPLETED GOOGLE SHEETS LOGGING =====")
+                except Exception as sheets_error:
+                    logger.error(f"Error during sheets logging process: {sheets_error}")
+                    logger.exception("Full exception details:")
+                
             except SlackApiError as e:
                 if e.response["error"] == "not_in_channel":
                     client.chat_postMessage(
@@ -334,9 +391,35 @@ def handle_kudos_shortcut(ack, body, client):
 # Start your app
 if __name__ == "__main__":
     try:
-        logger.info("Starting the app...")
-        # Initialize Socket Mode handler
-        handler = SocketModeHandler(app_token=os.environ.get("SLACK_APP_TOKEN"), app=app)
+        logger.info("Starting the app in Socket Mode...")
+        
+        # Verify Google Sheets integration
+        if SHEETS_CONFIG.get("enabled", True):
+            sheet_id = os.environ.get("GOOGLE_SHEET_ID")
+            creds_path = os.environ.get("GOOGLE_CREDENTIALS_PATH", 
+                                       SHEETS_CONFIG.get("default_credentials_path", "credentials.json"))
+            
+            if sheet_id and os.path.exists(creds_path):
+                logger.info(f"Google Sheets integration enabled with sheet ID: {sheet_id}")
+                logger.info(f"Using credentials from: {creds_path}")
+                
+                # Force reinitialization of sheets integration
+                import sheets_integration
+                from sheets_integration import SheetsIntegration
+                sheets_integration.sheets = SheetsIntegration()
+                
+                if sheets_integration.sheets.initialized:
+                    logger.info("Google Sheets integration initialized successfully")
+                else:
+                    logger.warning("Google Sheets integration failed to initialize")
+            else:
+                if not sheet_id:
+                    logger.warning("GOOGLE_SHEET_ID not set in environment variables")
+                if not os.path.exists(creds_path):
+                    logger.warning(f"Credentials file not found at {creds_path}")
+        
+        # Start Socket Mode handler
+        handler = SocketModeHandler(app, os.environ.get("SLACK_APP_TOKEN"))
         handler.start()
     except Exception as e:
         logger.error("Error starting the app: %s", str(e))

@@ -2,109 +2,106 @@
 
 A Slack bot that allows team members to give kudos to their colleagues with customizable recognition types and emojis.
 
+<img src="kudos_bot.png" alt="Kudos Bot Screenshot" width="600"/>
+
 ## Features ✨
 
-- Customizable recognition types and emojis
-- Rich text message support with emoji support
-- User-friendly modal interface
-- Channel-based kudos sharing
-- Easy configuration through `config.py`
-- Global shortcut for quick access
-- Socket Mode support (no need for ngrok)
+- 🔌 **Socket Mode Support**: No public URL needed, works behind firewalls
+- 👥 **User-Friendly Interface**: Clean modal with dropdowns for easy kudos giving
+- 🎨 **Customizable Recognition Types**: Easily configure recognition categories and emojis
+- 💬 **Rich Text Support**: Use emojis and @mentions in your kudos messages
+- 📊 **Google Sheets Integration** (Optional): Audit all recognitions ([setup instructions](GoogleSheetsIntegration.md))
 
-## Prerequisites 📋
+## Quick Start 🚀
 
-- Python 3.7 or higher
-- A Slack workspace
-- Slack app with appropriate permissions
-
-## Setup Instructions 🛠️
-
-### 1. Local Development Setup
-
-1. Clone this repository:
+1. **Clone the repository**
    ```bash
-   git clone https://github.com/jinagamvasubabu/kudos-slack-bot.git
+   git clone <repository-url>
    cd kudos-slack-bot
    ```
 
-2. Create and activate a virtual environment:
+2. **Set up virtual environment**
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
-3. Install dependencies:
+3. **Install dependencies**
    ```bash
    pip install -r requirements.txt
    ```
 
-4. Create a `.env` file in the root directory:
+4. **Create a `.env` file**
    ```
+   # Required Slack Tokens
    SLACK_BOT_TOKEN=xoxb-your-bot-token
    SLACK_SIGNING_SECRET=your-signing-secret
-   SLACK_APP_TOKEN=xapp-your-app-token
+   SLACK_APP_TOKEN=xapp-your-app-level-token
+   
+   # Optional Google Sheets Integration
+   # GOOGLE_SHEET_ID=your-spreadsheet-id
+   # GOOGLE_CREDENTIALS_PATH=credentials.json
    ```
 
-5. Run the application:
+5. **Start the bot**
    ```bash
    python app.py
    ```
 
-### 2. Create a Slack App (Ensure you have necessary permissions to do this, else take help from your administrator in setting up this)
+## Slack App Setup 🔧
+
+### 1. Create a Slack App
 
 1. Go to [api.slack.com/apps](https://api.slack.com/apps)
-2. Click "Create New App"
-3. Choose "From scratch"
-4. Enter your app name and select your workspace
-5. Under "Add features and functionality", click on "Bots"
-6. Click "Review Scopes to Add"
+2. Click "Create New App" > "From scratch"
+3. Enter app name and select your workspace
 
-### 3. Configure Slack App Permissions
+### 2. Configure App Settings
 
-Add the following OAuth scopes to your bot:
-- `chat:write` - To send messages
-- `commands` - To add slash commands
-- `users:read` - To get user information
-- `users:read.email` - To read user email addresses
-- `commands` - To add slash commands
-- `shortcuts` - To add global shortcuts
+1. **Enable Socket Mode**
+   - Go to "Socket Mode" and enable it
+   - Generate an app-level token with `connections:write` scope
+   - Add this as `SLACK_APP_TOKEN` in your `.env` file
 
-### 4. Enable Socket Mode
+2. **Set Up Bot Permissions**
+   - Go to "OAuth & Permissions" > "Scopes"
+   - Add bot token scopes:
+     - `chat:write` - Send messages
+     - `commands` - Use slash commands
+     - `users:read` - Get user information
+     - `app_mentions:read` - Respond to @mentions
+     - `im:history` - Access DM history
+     - `channels:history` - Access channel history
 
-1. Go to "Socket Mode" in your app settings
-2. Toggle "Enable Socket Mode" to On
-3. Generate an App-Level Token with the `connections:write` scope
-4. Copy the generated token to your `.env` file as `SLACK_APP_TOKEN`
-
-### 5. Install the App to Your Workspace
-
-1. Go to "OAuth & Permissions" in your app settings
-2. Click "Install to Workspace"
-3. Authorize the app
-
-### 6. Set Up Slash Command
-
-1. Go to "Slash Commands" in your app settings
-2. Click "Create New Command"
-3. Fill in the following:
+3. **Create Slash Command**
+   - Go to "Slash Commands" > "Create New Command"
    - Command: `/kudos`
-   - Short Description: "Give kudos to a team member"
-   - Usage Hint: `[@user] [message]`
+   - Description: "Give kudos to a team member"
+   - Usage hint: `[@user] [message]`
 
-### 7. Set Up Global Shortcut
+4. **Enable Event Subscriptions**
+   - Go to "Event Subscriptions" and enable events
+   - Subscribe to bot events:
+     - `message.channels`
+     - `message.im`
 
-1. Go to "Interactivity & Shortcuts" in your app settings
-2. Enable Interactivity
-3. Under "Global Shortcuts", click "Create New Shortcut"
-4. Fill in the following:
-   - Name: "Give Kudos"
-   - Description: "Quickly give kudos to a team member"
-   - Callback ID: `kudos_shortcut`
+5. **Install the App**
+   - Go to "Install App" and install to your workspace
+   - Copy the bot token to `SLACK_BOT_TOKEN` in your `.env` file
 
-## Configuration 🛠️
+## Usage 📝
 
-You can customize the recognition types and emojis by editing `config.py`:
+1. In any Slack channel, type `/kudos`
+2. Select a team member from the dropdown
+3. Choose a recognition type
+4. Write your kudos message (supports emojis and @mentions)
+5. Click "Send Kudos"
+
+## Customization ⚙️
+
+### Recognition Types
+
+Edit `config.py` to customize recognition types:
 
 ```python
 RECOGNITION_TYPES = {
@@ -112,52 +109,35 @@ RECOGNITION_TYPES = {
         "title": "Silent Soldier",
         "emoji": "🥷"
     },
-    # Add more recognition types here
+    "helping_hand": {
+        "title": "Helping Hand",
+        "emoji": "🤝"
+    },
+    # Add more types here...
 }
 ```
 
-## Usage 📝
+## Optional Features 🌟
 
-### Using Slash Command
-1. In any Slack channel, type `/kudos`
-2. Select a team member from the dropdown
-3. Choose a recognition type
-4. Write your kudos message (supports emojis and @mentions)
-5. Click "Send Kudos"
-
-### Using Global Shortcut
-1. Click the "+" button next to the message input
-2. Select "Give Kudos" from the shortcuts menu
-3. Select a team member from the dropdown
-4. Choose a recognition type
-5. Write your kudos message
-6. Click "Send Kudos"
+- **Google Sheets Integration**: Track all recognitions in a spreadsheet
+  - [Setup Instructions](GoogleSheetsIntegration.md)
 
 ## Troubleshooting 🔍
 
 ### Common Issues
 
 1. **Bot not responding**
-   - Check if the bot is installed in the workspace
-   - Verify the bot token in `.env`
-   - Ensure Socket Mode is enabled
+   - Verify your tokens in `.env`
+   - Make sure Socket Mode is enabled
+   - Check app permissions
 
 2. **Cannot post in channel**
-   - Make sure the bot is invited to the channel
-   - Check if the bot has the required permissions
+   - Invite the bot to the channel first
+   - Verify bot has correct permissions
 
-3. **Emojis not displaying correctly**
-   - Verify the emoji codes in `config.py`
-   - Check if the emoji is supported in Slack
-
-4. **Shortcut not appearing**
-   - Verify that the shortcut is properly configured in Slack app settings
-   - Check if the bot has the required permissions
-   - Try reinstalling the app to the workspace
-
-## Contributing 🤝
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+3. **"not_allowed_token_type" error**
+   - Make sure your app token starts with `xapp-`
+   - Verify it has the `connections:write` scope
 
 ## License 📄
 
@@ -166,4 +146,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments 🙏
 
 - [Slack Bolt Framework](https://slack.dev/bolt-python/tutorial/getting-started)
-- [python-dotenv](https://pypi.org/project/python-dotenv/) 
+- [Socket Mode documentation](https://api.slack.com/apis/connections/socket) 
