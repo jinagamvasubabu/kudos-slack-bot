@@ -133,13 +133,12 @@ def handle_kudos_command(ack, body, client, logger):
                             "text": "👥 Select Coworker"
                         },
                         "element": {
-                            "type": "static_select",
+                            "type": "users_select",
                             "action_id": "recipient_select",
                             "placeholder": {
                                 "type": "plain_text",
                                 "text": "Select a coworker"
-                            },
-                            "options": user_options
+                            }
                         }
                     },
                     {
