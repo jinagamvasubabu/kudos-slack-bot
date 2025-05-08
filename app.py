@@ -46,16 +46,21 @@ def extract_rich_text_content(rich_text_input):
 
 def create_user_options(users):
     """Create user options for the dropdown menu."""
-    return [
-        {
-            "text": {
-                "type": "plain_text",
-                "text": user["real_name"]
-            },
-            "value": user["id"]
-        }
-        for user in users if not user["is_bot"] and not user["deleted"]
-    ]
+    options = []
+    count = 0
+    for user in users:
+        if not user["is_bot"] and not user["deleted"]:
+            options.append({
+                "text": {
+                    "type": "plain_text",
+                    "text": user["real_name"]
+                },
+                "value": user["id"]
+            })
+            count += 1
+            if count >= 100:
+                break
+    return options
 
 def create_recognition_options():
     """Create recognition type options for the dropdown menu."""
@@ -288,104 +293,6 @@ def handle_kudos_submission(ack, body, client, view):
         client.chat_postMessage(
             channel=body["user"]["id"],
             text="Sorry, there was an error submitting your kudos. Please try again."
-        )
-
-# Handle global shortcut
-@app.shortcut("kudos_shortcut")
-def handle_kudos_shortcut(ack, body, client):
-    ack()
-    
-    try:
-        # Get the channel ID from the shortcut context
-        channel_id = body.get("channel", {}).get("id")
-        
-        if not channel_id:
-            # If no channel ID, send a message to the user
-            client.chat_postMessage(
-                channel=body["user"]["id"],
-                text="Please use this shortcut in a channel to give kudos."
-            )
-            return
-
-        # Get users and create options
-        users_response = client.users_list()
-        user_options = create_user_options(users_response["members"])
-        recognition_options = create_recognition_options()
-
-        # Open the modal
-        client.views_open(
-            trigger_id=body["trigger_id"],
-            view={
-                "type": "modal",
-                "callback_id": "kudos_modal",
-                "private_metadata": channel_id,
-                "title": {
-                    "type": "plain_text",
-                    "text": "🎉 Give Kudos"
-                },
-                "submit": {
-                    "type": "plain_text",
-                    "text": "Send Kudos"
-                },
-                "blocks": [
-                    {
-                        "type": "input",
-                        "block_id": "recipient_block",
-                        "label": {
-                            "type": "plain_text",
-                            "text": "👥 Select Coworker"
-                        },
-                        "element": {
-                            "type": "static_select",
-                            "action_id": "recipient_select",
-                            "placeholder": {
-                                "type": "plain_text",
-                                "text": "Select a coworker"
-                            },
-                            "options": user_options
-                        }
-                    },
-                    {
-                        "type": "input",
-                        "block_id": "recognition_type_block",
-                        "label": {
-                            "type": "plain_text",
-                            "text": "🏆 Recognition Type"
-                        },
-                        "element": {
-                            "type": "static_select",
-                            "action_id": "recognition_type_select",
-                            "placeholder": {
-                                "type": "plain_text",
-                                "text": "Select recognition type"
-                            },
-                            "options": recognition_options
-                        }
-                    },
-                    {
-                        "type": "input",
-                        "block_id": "message_block",
-                        "label": {
-                            "type": "plain_text",
-                            "text": "💬 Message"
-                        },
-                        "element": {
-                            "type": "rich_text_input",
-                            "action_id": "message_input",
-                            "placeholder": {
-                                "type": "plain_text",
-                                "text": "Write your kudos message here... You can use emojis and @mention people!"
-                            }
-                        }
-                    }
-                ]
-            }
-        )
-    except Exception as e:
-        logger.error(f"Error handling shortcut: {e}")
-        client.chat_postMessage(
-            channel=body["user"]["id"],
-            text="Sorry, there was an error opening the kudos form. Please try again."
         )
 
 # Start your app
