@@ -213,7 +213,7 @@ def handle_user_options_load(ack, payload, client, logger):
                 name = user.get("name", "") # Slack handle
                 user_id = user.get("id")
 
-                # Check if search term matches real name or handle
+                # Check if search term matches real name or handle (case-insensitive)
                 if user_id and (search_term in real_name.lower() or search_term in name.lower()):
                     options.append({
                         "text": {
