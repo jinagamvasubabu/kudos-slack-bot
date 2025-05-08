@@ -105,8 +105,8 @@ def handle_kudos_command(ack, body, client, logger):
             return
 
         # Get users and create options
-        users_response = client.users_list()
-        user_options = create_user_options(users_response["members"])
+        # users_response = client.users_list()
+        # user_options = create_user_options(users_response["members"])
         recognition_options = create_recognition_options()
 
         # Open the modal
@@ -133,12 +133,13 @@ def handle_kudos_command(ack, body, client, logger):
                             "text": "👥 Select Coworker"
                         },
                         "element": {
-                            "type": "users_select",
-                            "action_id": "recipient_select",
+                            "type": "external_select",
+                            "action_id": "recipient_select_external",
                             "placeholder": {
                                 "type": "plain_text",
                                 "text": "Select a coworker"
-                            }
+                            },
+                            "min_query_length": 0
                         }
                     },
                     {
@@ -184,6 +185,55 @@ def handle_kudos_command(ack, body, client, logger):
             text="Sorry, there was an error opening the kudos form. Please try again."
         )
 
+# Handle external select menu option loading for users
+@app.options("recipient_select_external")
+def handle_user_options_load(ack, payload, client, logger):
+    search_term = payload.get("value", "").lower()
+    logger.info(f"Received user options load request with search term: '{search_term}'")
+    options = []
+    try:
+        # Fetch all users
+        users_response = client.users_list(limit=200) # Adjust limit as needed, max 1000 per call
+        all_users = users_response.get("members", [])
+        
+        # Consider pagination if you have > 1000 users
+        # cursor = users_response.get('response_metadata', {}).get('next_cursor')
+        # while cursor:
+        #     logger.info(f"Fetching next page of users with cursor: {cursor}")
+        #     users_response = client.users_list(limit=200, cursor=cursor)
+        #     all_users.extend(users_response.get("members", []))
+        #     cursor = users_response.get('response_metadata', {}).get('next_cursor')
+
+        logger.debug(f"Total users fetched: {len(all_users)}")
+
+        count = 0
+        for user in all_users:
+            if not user.get("is_bot") and not user.get("deleted"):
+                real_name = user.get("real_name", "")
+                name = user.get("name", "") # Slack handle
+                user_id = user.get("id")
+
+                # Check if search term matches real name or handle
+                if user_id and (search_term in real_name.lower() or search_term in name.lower()):
+                    options.append({
+                        "text": {
+                            "type": "plain_text",
+                            "text": real_name
+                        },
+                        "value": user_id
+                    })
+                    count += 1
+                    if count >= 100: # Slack limits options list to 100
+                        logger.info("Reached 100 options limit for external select.")
+                        break
+        
+        logger.info(f"Returning {len(options)} user options for search term '{search_term}'")
+        ack({"options": options})
+
+    except Exception as e:
+        logger.error(f"Error fetching user options: {e}")
+        ack() # Acknowledge the request even if there's an error
+
 # Handle modal submission
 @app.view("kudos_modal")
 def handle_kudos_submission(ack, body, client, view):
@@ -192,7 +242,7 @@ def handle_kudos_submission(ack, body, client, view):
     
     try:
         # Extract values from the submission
-        recipient_id = view["state"]["values"]["recipient_block"]["recipient_select"]["selected_option"]["value"]
+        recipient_id = view["state"]["values"]["recipient_block"]["recipient_select_external"]["selected_option"]["value"]
         recognition_type = view["state"]["values"]["recognition_type_block"]["recognition_type_select"]["selected_option"]["value"]
         message_input = view["state"]["values"]["message_block"]["message_input"]
         
