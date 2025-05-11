@@ -11,7 +11,7 @@ from sheets_integration import sheets
 
 # Set up logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -24,6 +24,43 @@ app = App(
     token=os.environ.get("SLACK_BOT_TOKEN"),
     signing_secret=os.environ.get("SLACK_SIGNING_SECRET")
 )
+
+#---------------------------
+# Helper Functions
+#---------------------------
+
+def extract_user_mention(rich_text_input):
+    """
+    Extract user mentions from a rich text input.
+    Returns a dict with:
+    - mention_count: number of users mentioned
+    - user_id: ID of the first mentioned user (if any)
+    - mentioned_users: list of all mentioned user IDs
+    """
+    result = {
+        "mention_count": 0,
+        "user_id": None,
+        "mentioned_users": []
+    }
+    
+    if not rich_text_input or "rich_text_value" not in rich_text_input:
+        return result
+        
+    rich_text = rich_text_input["rich_text_value"]
+    
+    if "elements" in rich_text:
+        for block in rich_text["elements"]:
+            if block["type"] == "rich_text_section":
+                for element in block["elements"]:
+                    if element["type"] == "user":
+                        result["mention_count"] += 1
+                        # Store the user ID
+                        result["mentioned_users"].append(element["user_id"])
+                        # Store the first user ID we find
+                        if result["user_id"] is None:
+                            result["user_id"] = element["user_id"]
+    
+    return result
 
 def extract_rich_text_content(rich_text_input):
     """Extract content from rich text input, handling text and emojis."""
@@ -41,26 +78,10 @@ def extract_rich_text_content(rich_text_input):
                         message_content += element["text"]
                     elif element["type"] == "emoji":
                         message_content += f":{element['name']}:"
+                    elif element["type"] == "user":
+                        message_content += f"<@{element['user_id']}>"
     
     return message_content
-
-def create_user_options(users):
-    """Create user options for the dropdown menu."""
-    options = []
-    count = 0
-    for user in users:
-        if not user["is_bot"] and not user["deleted"]:
-            options.append({
-                "text": {
-                    "type": "plain_text",
-                    "text": user["real_name"]
-                },
-                "value": user["id"]
-            })
-            count += 1
-            if count >= 100:
-                break
-    return options
 
 def create_recognition_options():
     """Create recognition type options for the dropdown menu."""
@@ -84,17 +105,25 @@ def create_kudos_message(recipient_id, recognition, message_content, sender_id):
         f"*From:* <@{sender_id}>\n"
     )
 
-# Handle message events
+#---------------------------
+# Event Handlers
+#---------------------------
+
 @app.event("message")
 def handle_message_events(body, logger):
+    """Handle incoming message events."""
     logger.info("Received message event")
     return
 
-# Handle slash command
+#---------------------------
+# Command Handlers
+#---------------------------
+
 @app.command("/kudos")
 def handle_kudos_command(ack, body, client, logger):
+    """Handle the /kudos slash command by opening the kudos modal."""
     ack()
-    logger.info("Received kudos command")
+    logger.info("Received kudos command - opening modal with rich text input")
     try:
         channel_id = body.get("channel_id")
         if not channel_id:
@@ -104,12 +133,11 @@ def handle_kudos_command(ack, body, client, logger):
             )
             return
 
-        # Get users and create options
-        # users_response = client.users_list()
-        # user_options = create_user_options(users_response["members"])
         recognition_options = create_recognition_options()
-
-        # Open the modal
+        
+        # Add version number to help track modal version
+       
+        # Open the modal with rich text input for user mentions
         client.views_open(
             trigger_id=body["trigger_id"],
             view={
@@ -118,7 +146,7 @@ def handle_kudos_command(ack, body, client, logger):
                 "private_metadata": channel_id,
                 "title": {
                     "type": "plain_text",
-                    "text": "🎉 Give Kudos"
+                    "text": f"🎉 Give Kudos"
                 },
                 "submit": {
                     "type": "plain_text",
@@ -130,16 +158,15 @@ def handle_kudos_command(ack, body, client, logger):
                         "block_id": "recipient_block",
                         "label": {
                             "type": "plain_text",
-                            "text": "👥 Select Coworker"
+                            "text": "👥 Mention Coworker (One Person Only)"
                         },
                         "element": {
-                            "type": "external_select",
-                            "action_id": "recipient_select_external",
+                            "type": "rich_text_input",
+                            "action_id": "recipient_mention",
                             "placeholder": {
                                 "type": "plain_text",
-                                "text": "Select a coworker"
-                            },
-                            "min_query_length": 0
+                                "text": "@mention exactly one coworker"
+                            }
                         }
                     },
                     {
@@ -171,7 +198,7 @@ def handle_kudos_command(ack, body, client, logger):
                             "action_id": "message_input",
                             "placeholder": {
                                 "type": "plain_text",
-                                "text": "Write your kudos message here... You can use emojis and @mention people!"
+                                "text": "Write your kudos message here... You can use emojis!"
                             }
                         }
                     }
@@ -185,66 +212,63 @@ def handle_kudos_command(ack, body, client, logger):
             text="Sorry, there was an error opening the kudos form. Please try again."
         )
 
-# Handle external select menu option loading for users
-@app.options("recipient_select_external")
-def handle_user_options_load(ack, payload, client, logger):
-    search_term = payload.get("value", "").lower()
-    logger.info(f"Received user options load request with search term: '{search_term}'")
-    options = []
-    try:
-        # Fetch all users
-        users_response = client.users_list(limit=200) # Adjust limit as needed, max 1000 per call
-        all_users = users_response.get("members", [])
-        
-        # Consider pagination if you have > 1000 users
-        # cursor = users_response.get('response_metadata', {}).get('next_cursor')
-        # while cursor:
-        #     logger.info(f"Fetching next page of users with cursor: {cursor}")
-        #     users_response = client.users_list(limit=200, cursor=cursor)
-        #     all_users.extend(users_response.get("members", []))
-        #     cursor = users_response.get('response_metadata', {}).get('next_cursor')
+#---------------------------
+# View Submission Handlers
+#---------------------------
 
-        logger.debug(f"Total users fetched: {len(all_users)}")
-
-        count = 0
-        for user in all_users:
-            if not user.get("is_bot") and not user.get("deleted"):
-                real_name = user.get("real_name", "")
-                name = user.get("name", "") # Slack handle
-                user_id = user.get("id")
-
-                # Check if search term matches real name or handle (case-insensitive)
-                if user_id and (search_term in real_name.lower() or search_term in name.lower()):
-                    options.append({
-                        "text": {
-                            "type": "plain_text",
-                            "text": real_name
-                        },
-                        "value": user_id
-                    })
-                    count += 1
-                    if count >= 100: # Slack limits options list to 100
-                        logger.info("Reached 100 options limit for external select.")
-                        break
-        
-        logger.info(f"Returning {len(options)} user options for search term '{search_term}'")
-        ack({"options": options})
-
-    except Exception as e:
-        logger.error(f"Error fetching user options: {e}")
-        ack() # Acknowledge the request even if there's an error
-
-# Handle modal submission
 @app.view("kudos_modal")
-def handle_kudos_submission(ack, body, client, view):
-    ack()
-    logger.info("Kudos submission received - processing now")
-    
+def handle_kudos_submission(ack, body, client, view, logger):
+    """Handle the submission of the kudos modal."""
     try:
-        # Extract values from the submission
-        recipient_id = view["state"]["values"]["recipient_block"]["recipient_select_external"]["selected_option"]["value"]
+        # First validate that exactly one user is mentioned
+        recipient_mention = view["state"]["values"]["recipient_block"]["recipient_mention"]
+        recipient_data = extract_user_mention(recipient_mention)
+        
+        # Log what we found for debugging
+        logger.info(f"Mentions found: {recipient_data['mention_count']}")
+        if recipient_data["mentioned_users"]:
+            logger.info(f"Mentioned users: {recipient_data['mentioned_users']}")
+        
+        # Check if we have exactly one user mention
+        if recipient_data["mention_count"] == 0:
+            # Respond with error if no user mentioned
+            ack({
+                "response_action": "errors",
+                "errors": {
+                    "recipient_block": "Please @mention a coworker to give kudos to."
+                }
+            })
+            return
+        elif recipient_data["mention_count"] > 1:
+            # Respond with error if multiple users mentioned
+            ack({
+                "response_action": "errors",
+                "errors": {
+                    "recipient_block": f"You mentioned {recipient_data['mention_count']} people. Please mention ONLY ONE coworker."
+                }
+            })
+            return
+        
+        # We have exactly one mention, proceed
+        recipient_id = recipient_data["user_id"]
+        
+        if not recipient_id:
+            # Respond with error if we couldn't extract the user ID
+            ack({
+                "response_action": "errors",
+                "errors": {
+                    "recipient_block": "Couldn't recognize the mentioned user. Please try again."
+                }
+            })
+            return
+        
+        # Extract other submission values
         recognition_type = view["state"]["values"]["recognition_type_block"]["recognition_type_select"]["selected_option"]["value"]
         message_input = view["state"]["values"]["message_block"]["message_input"]
+        
+        # Acknowledge the submission
+        ack()
+        logger.info("Kudos submission received - processing now")
         
         # Process the message content
         message_content = extract_rich_text_content(message_input)
@@ -271,56 +295,17 @@ def handle_kudos_submission(ack, body, client, view):
                     text=kudos_message
                 )
                 
-                logger.info("===== STARTING GOOGLE SHEETS LOGGING =====")
-                
-                # Check sheets integration state before proceeding
-                logger.info(f"Sheets integration initialized: {sheets.initialized}")
-                logger.info(f"Sheets integration spreadsheet_id: {sheets.spreadsheet_id}")
-                logger.info(f"Sheets integration credentials_path: {sheets.credentials_path}")
-                logger.info(f"Credentials file exists: {os.path.exists(sheets.credentials_path)}")
-                
-                try:
-                    # Get user information for better logging
-                    logger.info(f"Getting user info for sender: {body['user']['id']}")
-                    sender_info = client.users_info(user=body["user"]["id"])
-                    logger.info(f"Getting user info for recipient: {recipient_id}")
-                    recipient_info = client.users_info(user=recipient_id)
-                    
-                    # Log the recognition to Google Sheets
-                    recognition_data = {
-                        'recipient_name': recipient_info["user"]["real_name"],
-                        'recipient_id': recipient_id,
-                        'recognition_type': f"{recognition['title']} ({recognition_type})",
-                        'message': message_content,
-                        'sender_name': sender_info["user"]["real_name"],
-                        'sender_id': body["user"]["id"],
-                        'channel_id': channel_id
-                    }
-                    
-                    # Add detailed logging for debugging Google Sheets integration
-                    logger.info(f"Attempting to log recognition to Google Sheets: {recognition_data}")
-                    
-                    # Try creating a fresh sheets instance to see if that helps
-                    logger.info("Creating a fresh sheets instance for this logging attempt")
-                    import sheets_integration
-                    from sheets_integration import SheetsIntegration
-                    fresh_sheets = SheetsIntegration()
-                    
-                    if fresh_sheets.initialized:
-                        logger.info("Fresh sheets instance initialized successfully")
-                        # Use the fresh instance to log
-                        sheets_result = fresh_sheets.log_recognition(recognition_data)
-                        logger.info(f"Fresh sheets logging result: {sheets_result}")
-                    else:
-                        logger.warning("Fresh sheets instance failed to initialize")
-                        # Try with the original instance as fallback
-                        sheets_result = sheets.log_recognition(recognition_data)
-                        logger.info(f"Original sheets logging result: {sheets_result}")
-                    
-                    logger.info("===== COMPLETED GOOGLE SHEETS LOGGING =====")
-                except Exception as sheets_error:
-                    logger.error(f"Error during sheets logging process: {sheets_error}")
-                    logger.exception("Full exception details:")
+                # Try to log the recognition to Google Sheets
+                log_recognition_to_sheets(
+                    client=client, 
+                    body=body,
+                    recipient_id=recipient_id, 
+                    recognition_type=recognition_type, 
+                    recognition=recognition,
+                    message_content=message_content, 
+                    channel_id=channel_id,
+                    logger=logger
+                )
                 
             except SlackApiError as e:
                 if e.response["error"] == "not_in_channel":
@@ -344,7 +329,69 @@ def handle_kudos_submission(ack, body, client, view):
             text="Sorry, there was an error submitting your kudos. Please try again."
         )
 
-# Start your app
+#---------------------------
+# Google Sheets Integration
+#---------------------------
+
+def log_recognition_to_sheets(client, body, recipient_id, recognition_type, recognition, message_content, channel_id, logger):
+    """Log recognition to Google Sheets."""
+    logger.info("===== STARTING GOOGLE SHEETS LOGGING =====")
+    
+    # Check sheets integration state before proceeding
+    logger.info(f"Sheets integration initialized: {sheets.initialized}")
+    logger.info(f"Sheets integration spreadsheet_id: {sheets.spreadsheet_id}")
+    logger.info(f"Sheets integration credentials_path: {sheets.credentials_path}")
+    logger.info(f"Credentials file exists: {os.path.exists(sheets.credentials_path)}")
+    
+    try:
+        # Get user information for better logging
+        logger.info(f"Getting user info for sender: {body['user']['id']}")
+        sender_info = client.users_info(user=body["user"]["id"])
+        logger.info(f"Getting user info for recipient: {recipient_id}")
+        recipient_info = client.users_info(user=recipient_id)
+        
+        # Log the recognition to Google Sheets
+        recognition_data = {
+            'recipient_name': recipient_info["user"]["real_name"],
+            'recipient_id': recipient_id,
+            'recognition_type': f"{recognition['title']} ({recognition_type})",
+            'message': message_content,
+            'sender_name': sender_info["user"]["real_name"],
+            'sender_id': body["user"]["id"],
+            'channel_id': channel_id
+        }
+        
+        # Add detailed logging for debugging Google Sheets integration
+        logger.info(f"Attempting to log recognition to Google Sheets: {recognition_data}")
+        
+        # Try creating a fresh sheets instance to see if that helps
+        logger.info("Creating a fresh sheets instance for this logging attempt")
+        import sheets_integration
+        from sheets_integration import SheetsIntegration
+        fresh_sheets = SheetsIntegration()
+        
+        if fresh_sheets.initialized:
+            logger.info("Fresh sheets instance initialized successfully")
+            # Use the fresh instance to log
+            sheets_result = fresh_sheets.log_recognition(recognition_data)
+            logger.info(f"Fresh sheets logging result: {sheets_result}")
+        else:
+            logger.warning("Fresh sheets instance failed to initialize")
+            # Try with the original instance as fallback
+            sheets_result = sheets.log_recognition(recognition_data)
+            logger.info(f"Original sheets logging result: {sheets_result}")
+        
+        logger.info("===== COMPLETED GOOGLE SHEETS LOGGING =====")
+        return sheets_result
+    except Exception as sheets_error:
+        logger.error(f"Error during sheets logging process: {sheets_error}")
+        logger.exception("Full exception details:")
+        return False
+
+#---------------------------
+# Main Application Startup
+#---------------------------
+
 if __name__ == "__main__":
     try:
         logger.info("Starting the app in Socket Mode...")
