@@ -142,7 +142,7 @@ def handle_kudos_command(ack, body, client, logger):
             trigger_id=body["trigger_id"],
             view={
                 "type": "modal",
-                "callback_id": "kudos_modal",
+                "callback_id": "kudos_modal_new",
                 "private_metadata": channel_id,
                 "title": {
                     "type": "plain_text",
@@ -216,7 +216,7 @@ def handle_kudos_command(ack, body, client, logger):
 # View Submission Handlers
 #---------------------------
 
-@app.view("kudos_modal")
+@app.view("kudos_modal_new")
 def handle_kudos_submission(ack, body, client, view, logger):
     """Handle the submission of the kudos modal."""
     try:
