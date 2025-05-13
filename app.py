@@ -119,7 +119,7 @@ def handle_message_events(body, logger):
 # Command Handlers
 #---------------------------
 
-@app.command("/kudos")
+@app.command("/kudos1")
 def handle_kudos_command(ack, body, client, logger):
     """Handle the /kudos slash command by opening the kudos modal."""
     ack()
