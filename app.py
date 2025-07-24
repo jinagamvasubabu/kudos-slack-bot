@@ -198,11 +198,14 @@ def create_recognition_options():
 
 def create_kudos_message(recipient_id, recognition, message_content, sender_id):
     """Create the formatted kudos message."""
+    ###remove the hardcoding and tag your leadership slack handle as a CC.
+    ###f"*CC:* <!subteam^tech-managers|@tech-managers>"
     return (
         f"{DEFAULT_EMOJI} *Thanks <@{recipient_id}> for being a "
         f"{recognition['title']} {recognition['emoji']} * {DEFAULT_EMOJI}\n\n"
         f"*Message:*\n{message_content}\n\n"
         f"*From:* <@{sender_id}>\n"
+        f"*CC:* <!subteam^tech-managers|@tech-managers>"
     )
 
 #---------------------------
