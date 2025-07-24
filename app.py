@@ -6,6 +6,9 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk.errors import SlackApiError
 import time
 from datetime import datetime
+import requests
+import json
+from requests.auth import HTTPBasicAuth
 from config import RECOGNITION_TYPES, DEFAULT_EMOJI, SHEETS_CONFIG
 from sheets_integration import sheets
 
@@ -63,7 +66,7 @@ def extract_user_mention(rich_text_input):
     return result
 
 def extract_rich_text_content(rich_text_input):
-    """Extract content from rich text input, handling text and emojis."""
+    """Extract content from rich text input, handling all rich text elements."""
     if not rich_text_input or "rich_text_value" not in rich_text_input:
         return ""
         
@@ -73,15 +76,112 @@ def extract_rich_text_content(rich_text_input):
     if "elements" in rich_text:
         for block in rich_text["elements"]:
             if block["type"] == "rich_text_section":
-                for element in block["elements"]:
-                    if element["type"] == "text":
-                        message_content += element["text"]
-                    elif element["type"] == "emoji":
-                        message_content += f":{element['name']}:"
-                    elif element["type"] == "user":
-                        message_content += f"<@{element['user_id']}>"
+                message_content += process_rich_text_section(block)
+            elif block["type"] == "rich_text_list":
+                message_content += process_rich_text_list(block)
+            elif block["type"] == "rich_text_preformatted":
+                message_content += process_rich_text_preformatted(block)
+            elif block["type"] == "rich_text_quote":
+                message_content += process_rich_text_quote(block)
     
-    return message_content
+    return message_content.strip()
+
+def process_rich_text_section(section):
+    """Process a rich text section element."""
+    content = ""
+    
+    if "elements" in section:
+        for element in section["elements"]:
+            if element["type"] == "text":
+                text = element["text"]
+                
+                # Apply text styling if present
+                style = element.get("style", {})
+                if style.get("bold"):
+                    text = f"*{text}*"
+                if style.get("italic"):
+                    text = f"_{text}_"
+                if style.get("strike"):
+                    text = f"~{text}~"
+                if style.get("code"):
+                    text = f"`{text}`"
+                    
+                content += text
+                
+            elif element["type"] == "emoji":
+                content += f":{element['name']}:"
+                
+            elif element["type"] == "user":
+                content += f"<@{element['user_id']}>"
+                
+            elif element["type"] == "channel":
+                content += f"<#{element['channel_id']}>"
+                
+            elif element["type"] == "usergroup":
+                content += f"<!subteam^{element['usergroup_id']}>"
+                
+            elif element["type"] == "link":
+                url = element["url"]
+                text = element.get("text", url)
+                if text != url:
+                    content += f"<{url}|{text}>"
+                else:
+                    content += url
+                    
+            elif element["type"] == "broadcast":
+                range_type = element.get("range", "here")
+                content += f"<!{range_type}>"
+                
+    return content
+
+def process_rich_text_list(list_block):
+    """Process a rich text list element."""
+    content = "\n"
+    style = list_block.get("style", "bullet")
+    indent = list_block.get("indent", 0)
+    
+    if "elements" in list_block:
+        for i, item in enumerate(list_block["elements"]):
+            if item["type"] == "rich_text_section":
+                # Add proper indentation
+                indent_str = "  " * indent
+                
+                # Add bullet or number
+                if style == "bullet":
+                    bullet = "• "
+                else:  # ordered list
+                    bullet = f"{i + 1}. "
+                
+                item_content = process_rich_text_section(item)
+                content += f"{indent_str}{bullet}{item_content}\n"
+                
+    return content
+
+def process_rich_text_preformatted(preformatted):
+    """Process a rich text preformatted (code block) element."""
+    content = "\n```"
+    
+    if "elements" in preformatted:
+        for element in preformatted["elements"]:
+            if element["type"] == "text":
+                content += element["text"]
+                
+    content += "```\n"
+    return content
+
+def process_rich_text_quote(quote):
+    """Process a rich text quote element."""
+    content = "\n> "
+    
+    if "elements" in quote:
+        for element in quote["elements"]:
+            if element["type"] == "text":
+                # Replace newlines with quoted newlines
+                text = element["text"].replace("\n", "\n> ")
+                content += text
+                
+    content += "\n"
+    return content
 
 def create_recognition_options():
     """Create recognition type options for the dropdown menu."""
@@ -119,25 +219,40 @@ def handle_message_events(body, logger):
 # Command Handlers
 #---------------------------
 
-@app.command("/kudos")
+@app.command("/kudos") 
 def handle_kudos_command(ack, body, client, logger):
     """Handle the /kudos slash command by opening the kudos modal."""
+    # Acknowledge immediately to prevent trigger_id expiration
     ack()
-    logger.info("Received kudos command - opening modal with rich text input")
+    
     try:
+        # Get the user who triggered the command
+        user_id = body["user_id"]
+        
+        # Get user information including email
+        try:
+            user_info = client.users_info(user=user_id)
+            user_email = user_info["user"].get("profile", {}).get("email")
+            user_name = user_info["user"].get("real_name")
+            logger.info(f"Command triggered by {user_name} ({user_email})")
+        except Exception as email_error:
+            logger.error(f"Error fetching user email: {email_error}")
+            user_email = None
+        
+        # Get channel ID
         channel_id = body.get("channel_id")
         if not channel_id:
             client.chat_postMessage(
-                channel=body["user_id"],
+                channel=user_id,
                 text="Please use this command in a channel to give kudos."
             )
             return
 
+        # Create options before opening modal
         recognition_options = create_recognition_options()
         
-        # Add version number to help track modal version
-       
         # Open the modal with rich text input for user mentions
+        logger.info("Received kudos command - opening modal with rich text input")
         client.views_open(
             trigger_id=body["trigger_id"],
             view={
@@ -198,7 +313,7 @@ def handle_kudos_command(ack, body, client, logger):
                             "action_id": "message_input",
                             "placeholder": {
                                 "type": "plain_text",
-                                "text": "Write your kudos message here... You can use emojis!"
+                                "text": "Write your kudos message here... You can use @mentions, emojis, bullet points, formatting, and links!"
                             }
                         }
                     }
@@ -347,18 +462,23 @@ def log_recognition_to_sheets(client, body, recipient_id, recognition_type, reco
         # Get user information for better logging
         logger.info(f"Getting user info for sender: {body['user']['id']}")
         sender_info = client.users_info(user=body["user"]["id"])
+        sender_email = sender_info["user"].get("profile", {}).get("email", "")
         logger.info(f"Getting user info for recipient: {recipient_id}")
         recipient_info = client.users_info(user=recipient_id)
+        recipient_email = recipient_info["user"].get("profile", {}).get("email", "")
         
         # Log the recognition to Google Sheets
         recognition_data = {
             'recipient_name': recipient_info["user"]["real_name"],
             'recipient_id': recipient_id,
+            'recipient_email': recipient_email,
             'recognition_type': f"{recognition['title']} ({recognition_type})",
             'message': message_content,
             'sender_name': sender_info["user"]["real_name"],
             'sender_id': body["user"]["id"],
-            'channel_id': channel_id
+            'sender_email': sender_email,
+            'channel_id': channel_id,
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         
         # Add detailed logging for debugging Google Sheets integration
@@ -387,6 +507,149 @@ def log_recognition_to_sheets(client, body, recipient_id, recognition_type, reco
         logger.error(f"Error during sheets logging process: {sheets_error}")
         logger.exception("Full exception details:")
         return False
+
+# Add this function to trigger Airflow DAG
+def trigger_airflow_dag(dag_id, conf=None, logger=None):
+    """
+    Trigger an Airflow DAG run using the REST API
+    
+    Args:
+        dag_id (str): The ID of the DAG to trigger
+        conf (dict, optional): Configuration/parameters to pass to the DAG
+        logger (Logger, optional): Logger instance
+    
+    Returns:
+        dict: The response from the Airflow API
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    
+    if conf is None:
+        conf = {}
+    
+    try:
+        logger.info(f"Attempting to trigger Airflow DAG: {dag_id}")
+        
+        # Create the URL for triggering a DAG run
+        url = f"{AIRFLOW_CONFIG['api_base_url']}/dags/{dag_id}/dagRuns"
+        
+        # Prepare the authentication
+        auth = HTTPBasicAuth(AIRFLOW_CONFIG['username'], AIRFLOW_CONFIG['password'])
+        
+        # Prepare the request payload
+        payload = {
+            "conf": conf,
+        }
+        
+        # Make the API request
+        response = requests.post(
+            url,
+            auth=auth,
+            headers={"Content-Type": "application/json"},
+            data=json.dumps(payload)
+        )
+        
+        # Check if the request was successful
+        response.raise_for_status()
+        
+        # Get the JSON response
+        result = response.json()
+        logger.info(f"Successfully triggered DAG {dag_id}, run ID: {result.get('dag_run_id', 'unknown')}")
+        return result
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error triggering Airflow DAG {dag_id}: {str(e)}")
+        if hasattr(e, 'response') and e.response:
+            logger.error(f"Response status: {e.response.status_code}, Response body: {e.response.text}")
+        return {"error": str(e)}
+
+# Add a new command to trigger an Airflow DAG
+@app.command("/trigger-dag")
+def handle_trigger_dag_command(ack, body, client, logger):
+    """Handle the /trigger-dag slash command to run an Airflow DAG."""
+    # Acknowledge immediately to prevent trigger_id expiration
+    ack()
+    
+    try:
+        # Get the user who triggered the command
+        user_id = body["user_id"]
+        
+        # Get user information including email
+        try:
+            user_info = client.users_info(user=user_id)
+            user_email = user_info["user"].get("profile", {}).get("email")
+            user_name = user_info["user"]["real_name"]
+            logger.info(f"DAG trigger command by {user_name} ({user_email})")
+        except Exception as email_error:
+            logger.error(f"Error fetching user email: {email_error}")
+            user_email = None
+        
+        # Get the text from the command which should contain the DAG ID
+        command_text = body.get("text", "").strip()
+        
+        if not command_text:
+            # Show an error if no DAG ID was provided
+            client.chat_postMessage(
+                channel=user_id,
+                text="Please provide a DAG ID. Usage: /trigger-dag <dag_id> [optional JSON parameters]"
+            )
+            return
+        
+        # Split the command text to get the DAG ID and optional JSON parameters
+        parts = command_text.split(" ", 1)
+        dag_id = parts[0]
+        
+        # Parse any additional parameters if provided
+        conf = {}
+        if len(parts) > 1:
+            try:
+                conf = json.loads(parts[1])
+                logger.info(f"Parsed parameters for DAG: {conf}")
+            except json.JSONDecodeError:
+                client.chat_postMessage(
+                    channel=user_id,
+                    text=f"Invalid JSON parameters. Make sure your parameters are valid JSON."
+                )
+                return
+        
+        # Add the user information to the configuration
+        conf["triggered_by_user"] = {
+            "id": user_id,
+            "name": user_name,
+            "email": user_email
+        }
+        
+        # Trigger the DAG
+        result = trigger_airflow_dag(dag_id, conf, logger)
+        
+        if "error" in result:
+            # There was an error triggering the DAG
+            client.chat_postMessage(
+                channel=user_id,
+                text=f"Error triggering DAG {dag_id}: {result['error']}"
+            )
+        else:
+            # DAG was triggered successfully
+            client.chat_postMessage(
+                channel=user_id,
+                text=f"Successfully triggered DAG {dag_id}.\nRun ID: {result.get('dag_run_id', 'unknown')}"
+            )
+            
+            # Also send a message to the channel where the command was triggered
+            channel_id = body.get("channel_id")
+            if channel_id:
+                client.chat_postMessage(
+                    channel=channel_id,
+                    text=f"DAG {dag_id} was triggered by <@{user_id}>.\nRun ID: {result.get('dag_run_id', 'unknown')}"
+                )
+        
+    except Exception as e:
+        logger.error(f"Error handling trigger-dag command: {e}")
+        logger.exception("Full error details:")
+        client.chat_postMessage(
+            channel=body["user_id"],
+            text=f"Sorry, there was an error triggering the DAG: {str(e)}"
+        )
 
 #---------------------------
 # Main Application Startup
