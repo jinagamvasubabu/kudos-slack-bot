@@ -205,7 +205,6 @@ def create_kudos_message(recipient_id, recognition, message_content, sender_id):
         f"{recognition['title']} {recognition['emoji']} * {DEFAULT_EMOJI}\n\n"
         f"*Message:*\n{message_content}\n\n"
         f"*From:* <@{sender_id}>\n"
-        f"*CC:* <!subteam^tech-manager|@tech-manager>"
     )
 
 #---------------------------
